@@ -1,0 +1,251 @@
+---
+title: "Diabetes.markdown"
+author: "nirman"
+date: "2023-11-29"
+output:
+  html_document: 
+    keep_md: yes
+  pdf_document: default
+---
+
+Importing the packages and calling it by library function
+
+```{r}
+library(ggplot2)
+library(reshape2)
+library(imputeTS)  ##for mean imputation
+library(caTools)    ##package for train test split
+library(dplyr)
+library(ROCR)
+library(caret)
+library(verification)
+```
+
+Loaded the dataset from local system
+
+```{r}
+df=read.csv("F:/Desktop items/datasets/diabetes.csv")
+head(df)
+tail(df)
+```
+
+Checking data types for all variables
+
+```{r}
+str(df)
+
+```
+
+```{r}
+sum(is.na(df))
+```
+
+No missing values
+
+```{r}
+sum(duplicated(df))
+```
+
+No duplicate values
+
+Checking for inappropriate or zero values in variables
+
+```{r}
+for (col in names(df)) {
+  zero_values <- sum(df[[col]] <= 0)
+  cat(paste('Zero values in column', col, '=', zero_values, '\n'))
+}
+
+```
+
+The BMI, Insulin, Skin thickness, Blood pressure and Glucose cannot have zero values so imputing it with the median values
+
+```{r}
+col_containing_zero <- c("Glucose", "BloodPressure", "SkinThickness", "Insulin", "BMI")
+
+for (col in col_containing_zero) {
+  median_value <- median(df[[col]], na.rm = TRUE)
+  df[df[[col]] <= 0, col] <- median_value
+}
+```
+
+Again checking zero values after imputation
+
+```{r}
+for (col in names(df)) {
+  zero_values <- sum(df[[col]] <= 0)
+  cat(paste('Zero values in column', col, '=', zero_values, '\n'))
+}
+```
+
+EXPLORATORY DATA ANALYSIS \\
+
+Comparison of patients with and without diabetes through Bar charts
+
+```{r}
+df %>%
+  group_by(Outcome)%>%
+  summarise(n=n())%>%
+  ggplot(aes(x=Outcome,y=n))+
+    geom_bar(stat = 'identity',fill='purple')+
+    geom_label(aes(label=n))+
+  theme_minimal()+
+  labs(title = "Count of Diabetic patients and Non-Diabetic patients")+
+  theme(panel.grid = element_blank())+
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+Comparing different variables with diabetic and non diabetic patients
+
+```{r}
+dist_columns <- c('Pregnancies', 'Glucose', 'BloodPressure', 'SkinThickness', 'Insulin', 'BMI', 'DiabetesPedigreeFunction', 'Age')
+
+for (col in dist_columns) {
+  ggplot(df, aes(x = !!sym(col))) +
+    geom_histogram(binwidth = 1, fill = 'blue', color = 'black', alpha = 0.7) +
+    geom_density(color = 'red') +
+    labs(title = paste("Distribution of", col, "column")) +
+    theme_minimal() +
+    theme(plot.title = element_text(hjust = 0.5)) +
+    scale_fill_manual(values = 'blue') +
+    scale_color_manual(values = 'black') +
+    facet_wrap(~1, scales = 'free_y') +
+    NULL
+}
+```
+
+Obtaining correlations matrix
+
+```{r}
+
+cor(df)   ##computed correlation matrix 
+corr_mat=round(cor(df),2)  ##rounded to 2 decimel
+melted_corr_mat <- melt(corr_mat)           #reduce the size of correlation matrix
+```
+
+Plotting the correlation heatmap with annotations
+
+```{r}
+ggplot(data = melted_corr_mat, aes(x=Var1, y=Var2,
+                                   fill=value)) + 
+geom_tile()+
+geom_text(aes(Var2, Var1, label = value), 
+          color = "black", size = 4)
+```
+
+looking for missing values
+
+```{r}
+ 
+sum(is.na(df$Pregnancies))
+sum(is.na(df$Glucose))
+sum(is.na(df$BloodPressure))
+sum(is.na(df$SkinThickness))
+sum(is.na(df$Insulin))
+sum(is.na(df$BMI))
+sum(is.na(df$Age))
+sum(is.na(df$Outcome))
+#so the data has no missing values
+```
+
+Checking Outliers using Scatterlot
+
+```{r}
+plot(df$Glucose)
+plot(df$BloodPressure)
+plot(df$SkinThickness)
+plot(df$Insulin)
+plot(df$BMI)
+plot(df$Age)
+```
+
+it is observed that the above features have many outliers and the outliers are zero values \####
+
+```{r}
+###check for summary of data frame
+summary(df)
+colSums(df==0)  ##checking the number of zeros in each features
+```
+
+```{r}
+#replacing the zeros by imputing mean in each of the important features
+##converting the zero values to NA 
+df$Glucose[df$Glucose==0]<-NA
+df$BloodPressure[df$BloodPressure==0]<-NA
+df$SkinThickness[df$SkinThickness==0]<-NA
+df$Insulin[df$Insulin==0]<-NA
+df$BMI[df$BMI==0]<-NA
+
+df$Glucose<-round(na_mean(df$Glucose, option = "mean", maxgap = Inf),0)##this is only for mean imputation
+df$BloodPressure<-round(na_mean(df$BloodPressure, option = "mean", maxgap = Inf),0)##this is only for mean imputation
+df$SkinThickness<-round(na_mean(df$SkinThickness, option = "mean", maxgap = Inf),0)##this is only for mean imputation
+df$Insulin<-round(na_mean(df$Insulin, option = "mean", maxgap = Inf),0)##this is only for mean imputation
+df$BMI<-round(na_mean(df$BMI, option = "mean", maxgap = Inf),1)##this is only for mean imputation
+
+```
+
+Logistic Regression Model
+
+```{r}
+##split features and target 
+X=df[-8]          ##features
+y=df[8]		        ##target
+
+```
+
+Splitting Train Test Data
+
+```{r}
+##splitting the data into trainning and test data
+
+set.seed(1)
+sample <- sample.split(df, SplitRatio = 0.8)
+train_df  <- subset(df, sample == TRUE)
+test_df   <- subset(df, sample == FALSE)
+```
+
+```{r}
+##spliting the data set into outcome and features
+train_X=train_df[-8]
+train_y=train_df[8]
+test_X=test_df[-8]
+test_y=test_df[8]
+```
+
+```{r}
+#checking the dimensions  
+dim(train_y)
+dim(test_y)
+dim(train_X)
+dim(test_X)
+head(train_X)
+head(train_df)
+```
+
+```{r}
+###Model training
+logit_model<- glm( Outcome ~  Age+BMI+ Insulin+SkinThickness+BloodPressure+Glucose+Pregnancies,
+                    data = train_df,
+                    family = "binomial")
+summary(logit_model)
+```
+
+```{r}
+###model testing
+predict_model <- predict(logit_model,
+                       test_df, type = "response")
+```
+
+```{r}
+###model performance
+test_class<-ifelse(predict_model<=0.5, 0, 1)   ###assuming 0.5 as the optimal threshold probability
+test_class
+```
+
+```{r}
+#it is required to  factor the outcomes in order to create a confusion matrix
+test_class<-as.factor(test_class)
+test_df$Outcome<-as.factor(test_df$Outcome)
+
+confusionMatrix(test_df$Outcome,test_class)
+```
